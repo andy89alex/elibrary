@@ -98,6 +98,16 @@ class JpaLoanRepositoryTest {
         assertThat(loans.findFor(ALICE, LoanStatusFilter.ACTIVE, 0, 20).totalElements()).isEqualTo(1);
         assertThat(loans.findFor(ALICE, LoanStatusFilter.RETURNED, 0, 20).totalElements()).isEqualTo(1);
         assertThat(loans.findFor(ALICE, LoanStatusFilter.ALL, 0, 20).totalElements()).isEqualTo(2);
+
+        assertThat(loans.findFor(ALICE, LoanStatusFilter.ACTIVE, 0, 20).items())
+                .extracting(Loan::bookId)
+                .as("ACTIVE must select the open loan, not the returned one")
+                .containsExactly(DDD);
+
+        assertThat(loans.findFor(ALICE, LoanStatusFilter.RETURNED, 0, 20).items())
+                .extracting(Loan::bookId)
+                .as("RETURNED must select the closed loan, not the open one")
+                .containsExactly(REFACTORING);
     }
 
     @Test
