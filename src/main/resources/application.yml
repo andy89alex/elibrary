@@ -2,7 +2,7 @@ spring:
   application:
     name: elibrary
   datasource:
-    url: jdbc:h2:mem:elibrary;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    url: jdbc:h2:mem:elibrary;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;LOCK_TIMEOUT=10000
     username: sa
     password: ""
     driver-class-name: org.h2.Driver
