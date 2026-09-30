@@ -39,8 +39,10 @@ class ArchitectureTest {
     @ArchTest
     static final ArchRule theDomainDoesNotReachOutwards =
             noClasses().that().resideInAPackage("..lending.domain..")
-                    .should().dependOnClassesThat().resideInAnyPackage("..lending.internal..", "..lending.web..")
-                    .because("dependencies point inwards");
+                    .should().dependOnClassesThat()
+                    .resideInAnyPackage("..lending.application..", "..lending.internal..", "..lending.web..")
+                    .because("dependencies point inwards: the application layer orchestrates the domain, "
+                            + "never the reverse");
 
     @ArchTest
     static final ArchRule lendingCannotReachIntoTheCatalogueInternals =
