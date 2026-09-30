@@ -139,6 +139,31 @@ class BookControllerTest {
     }
 
     @Test
+    void aTrailingCommaInSortIsTreatedAsNoDirectionRatherThanAServerError() throws Exception {
+        when(catalog.search(any())).thenReturn(PageResult.of(List.of(), 0, 20, 0));
+
+        mockMvc.perform(get("/api/v1/books").param("sort", "title,"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<BookSearchCriteria> captor = ArgumentCaptor.forClass(BookSearchCriteria.class);
+        verify(catalog).search(captor.capture());
+        assertThat(captor.getValue().sortField()).isEqualTo(BookSortField.TITLE);
+        assertThat(captor.getValue().ascending()).isTrue();
+    }
+
+    @Test
+    void aBareSortFieldWithNoDirectionIsAscending() throws Exception {
+        when(catalog.search(any())).thenReturn(PageResult.of(List.of(), 0, 20, 0));
+
+        mockMvc.perform(get("/api/v1/books").param("sort", "title"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<BookSearchCriteria> captor = ArgumentCaptor.forClass(BookSearchCriteria.class);
+        verify(catalog).search(captor.capture());
+        assertThat(captor.getValue().ascending()).isTrue();
+    }
+
+    @Test
     void anUnknownBookIs404WithTheBookNotFoundCode() throws Exception {
         when(catalog.findById(any())).thenReturn(Optional.empty());
 

@@ -95,9 +95,13 @@ class BookController {
     }
 
     private static boolean ascending(String sort) {
-        if (sort == null || !sort.contains(",")) {
+        if (sort == null || sort.isBlank()) {
             return true;
         }
-        return !"desc".equalsIgnoreCase(sort.split(",")[1].trim());
+        String[] parts = sort.split(",", 2);
+        if (parts.length < 2 || parts[1].isBlank()) {
+            return true;
+        }
+        return !"desc".equalsIgnoreCase(parts[1].trim());
     }
 }
