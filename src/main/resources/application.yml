@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: elibrary
+  datasource:
+    url: jdbc:h2:mem:elibrary;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+elibrary:
+  lending:
+    max-concurrent-loans: 5
+    loan-period-days: 14
+
+logging:
+  level:
+    org.springframework.security: INFO

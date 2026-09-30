@@ -1,0 +1,16 @@
+insert into books (id, title, author, isbn, kind, publisher, publication_year, volume, issue, total_copies, available_copies) values
+('11111111-1111-1111-1111-111111111101', 'Domain-Driven Design', 'Eric Evans', '9780321125217', 'BOOK', 'Addison-Wesley', 2003, null, null, 4, 4),
+('11111111-1111-1111-1111-111111111102', 'Implementing Domain-Driven Design', 'Vaughn Vernon', '9780321834577', 'BOOK', 'Addison-Wesley', 2013, null, null, 3, 3),
+('11111111-1111-1111-1111-111111111103', 'Patterns of Enterprise Application Architecture', 'Martin Fowler', '9780321127426', 'BOOK', 'Addison-Wesley', 2002, null, null, 2, 2),
+('11111111-1111-1111-1111-111111111104', 'Refactoring', 'Martin Fowler', '9780134757599', 'BOOK', 'Addison-Wesley', 2018, null, null, 5, 5),
+('11111111-1111-1111-1111-111111111105', 'Release It!', 'Michael Nygard', '9781680502398', 'BOOK', 'Pragmatic Bookshelf', 2018, null, null, 2, 2),
+('11111111-1111-1111-1111-111111111106', 'Designing Data-Intensive Applications', 'Martin Kleppmann', '9781449373320', 'BOOK', 'O''Reilly', 2017, null, null, 6, 6),
+('11111111-1111-1111-1111-111111111107', 'Effective Java', 'Joshua Bloch', '9780134685991', 'BOOK', 'Addison-Wesley', 2018, null, null, 4, 4),
+('11111111-1111-1111-1111-111111111108', 'Java Concurrency in Practice', 'Brian Goetz', '9780321349606', 'BOOK', 'Addison-Wesley', 2006, null, null, 3, 3),
+('11111111-1111-1111-1111-111111111109', 'Working Effectively with Legacy Code', 'Michael Feathers', '9780131177055', 'BOOK', 'Prentice Hall', 2004, null, null, 2, 0),
+('11111111-1111-1111-1111-111111111110', 'Accelerate', 'Nicole Forsgren', '9781942788331', 'BOOK', 'IT Revolution', 2018, null, null, 1, 0),
+('11111111-1111-1111-1111-111111111111', 'Tidy First?', 'Kent Beck', '9781098151249', 'BOOK', 'O''Reilly', 2023, null, null, 1, 1),
+('11111111-1111-1111-1111-111111111112', 'Communications of the ACM', 'Various', '0001-0782', 'JOURNAL', 'ACM', 2025, '68', '9', 8, 8),
+('11111111-1111-1111-1111-111111111113', 'IEEE Software', 'Various', '0740-7459', 'JOURNAL', 'IEEE', 2025, '42', '4', 5, 5),
+('11111111-1111-1111-1111-111111111114', 'ACM Transactions on Software Engineering', 'Various', '1049-331X', 'JOURNAL', 'ACM', 2024, '33', '2', 3, 3),
+('11111111-1111-1111-1111-111111111115', 'Journal of Systems and Software', 'Various', '0164-1212', 'JOURNAL', 'Elsevier', 2024, '210', '1', 2, 2);
