@@ -85,7 +85,27 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!--
+            Byte Buddy cannot read class files from JDKs newer than it supports, so Mockito
+            fails to mock concrete classes on a newer JDK than this project targets. This is
+            Mockito's documented escape hatch and becomes a no-op once Byte Buddy supports the
+            running JDK natively. The build targets Java 21; this keeps it green on newer JDKs too.
+          -->
+          <systemPropertyVariables>
+            <net.bytebuddy.experimental>true</net.bytebuddy.experimental>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <net.bytebuddy.experimental>true</net.bytebuddy.experimental>
+          </systemPropertyVariables>
+        </configuration>
         <executions>
           <execution>
             <goals>
