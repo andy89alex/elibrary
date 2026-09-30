@@ -8,6 +8,7 @@ import com.elibrary.shared.BookId;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,7 +28,18 @@ class CatalogBookInventoryTest {
     @Autowired
     private BookCatalog catalog;
 
+    @Autowired
+    private TestEntityManager entityManager;
+
+    /**
+     * Flushes and detaches before reading, so availability comes from a fresh SELECT rather
+     * than from the first-level cache. Without this, the assertions below would pass off the
+     * same in-memory entity that checkoutCopy() mutated, and would not prove the write ever
+     * reached the row.
+     */
     private int availableCopiesOf(BookId id) {
+        entityManager.flush();
+        entityManager.clear();
         return catalog.findById(id).orElseThrow().availableCopies();
     }
 
