@@ -23,11 +23,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The last copy of a book, contended by many members at once.
  *
- * <p>This is the test that gives the locking decision teeth. Without the pessimistic write
- * lock in CatalogBookInventory, several transactions read {@code available_copies = 1},
- * all decrement, and the library lends a book it does not have. The database check
- * constraint would catch some of that, but the point is that the application must not
- * depend on the constraint to stay correct.
+ * <p>Each contender is a distinct member, so the duplicate-borrow rule cannot be what refuses
+ * them — only the copy-availability check stands between eight threads and an oversold book.
+ *
+ * <p>Three independent layers protect that invariant: the {@code chk_books_available_copies}
+ * database check constraint, {@code @Version} optimistic locking on {@code BookRecord}, and the
+ * pessimistic write lock taken by {@code findByIdForUpdate} in {@code CatalogBookInventory}.
+ * The optimistic version column means literal overselling can never occur here even without the
+ * pessimistic lock: without it, this test would still fail, but via
+ * {@code ObjectOptimisticLockingFailureException} landing in {@code unexpected} rather than via
+ * multiple successes. The pessimistic lock's real job is not preventing oversell — it is letting
+ * contenders queue cleanly and wait their turn, so losers are refused with an honest
+ * {@link BookUnavailable} instead of a legitimate borrow spuriously failing on a lock conflict
+ * that would otherwise force retry logic into the application.
  */
 @SpringBootTest
 class LastCopyConcurrencyIT {
