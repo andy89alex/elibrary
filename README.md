@@ -38,8 +38,9 @@ exactly one, so the refusal paths are reachable without setup.
 `net.bytebuddy.experimental=true`: Byte Buddy cannot read class files from JDKs newer than it
 natively supports, so without the flag Mockito fails to mock concrete classes and the suite
 breaks on JDK 25. It is Mockito's documented escape hatch and becomes a no-op once Byte Buddy
-catches up. With it, the build is green on both 21 and 25 — this project was verified on
-Temurin 25.
+catches up. With it, the suite was verified green on Temurin 25. It should be green on 21
+too — that's the compile target — but only 25 was available here, so treat 21 as expected,
+not observed.
 
 ### Credentials
 
