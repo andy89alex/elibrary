@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Loan endpoints.
@@ -113,7 +114,7 @@ class LoanController {
         Map<BookId, BookSummary> summaries = catalog
                 .summariesFor(loans.items().stream().map(Loan::bookId).toList())
                 .stream()
-                .collect(java.util.stream.Collectors.toMap(BookSummary::id, Function.identity()));
+                .collect(Collectors.toMap(BookSummary::id, Function.identity()));
 
         return loans.map(loan -> LoanResponse.of(loan, summaries.get(loan.bookId()), clock));
     }

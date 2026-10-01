@@ -1,5 +1,7 @@
 package com.elibrary.catalog;
 
+import java.util.Objects;
+
 /** Browse inputs, already defaulted and clamped so no adapter has to repeat the rules. */
 public record BookSearchCriteria(
         String q,
@@ -12,6 +14,17 @@ public record BookSearchCriteria(
 
     public static final int DEFAULT_SIZE = 20;
     public static final int MAX_SIZE = 100;
+
+    public BookSearchCriteria {
+        Objects.requireNonNull(sortField, "sortField");
+        if (page < 0) {
+            page = 0;
+        }
+        if (size < 1) {
+            size = DEFAULT_SIZE;
+        }
+        size = Math.min(size, MAX_SIZE);
+    }
 
     public static BookSearchCriteria of(String q, String author, boolean availableOnly,
                                         BookSortField sortField, boolean ascending,

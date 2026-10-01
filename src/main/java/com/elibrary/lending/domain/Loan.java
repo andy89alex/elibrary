@@ -39,7 +39,8 @@ public final class Loan {
 
     public static Loan open(MemberId memberId, BookId bookId, LendingPolicy policy, Clock clock) {
         Instant now = clock.instant();
-        return new Loan(LoanId.newId(), memberId, bookId, now, policy.dueDateFrom(today(clock)), null);
+        LocalDate today = LocalDate.ofInstant(now, clock.getZone());
+        return new Loan(LoanId.newId(), memberId, bookId, now, policy.dueDateFrom(today), null);
     }
 
     /** Rebuilds a loan from storage. Used only by the persistence adapter. */

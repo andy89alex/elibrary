@@ -1,6 +1,7 @@
 package com.elibrary.shared;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Our pagination envelope. Spring's {@code Page<T>} is never serialised: its JSON shape
@@ -18,7 +19,7 @@ public record PageResult<T>(List<T> items, int page, int size, long totalElement
         return new PageResult<>(items, page, size, totalElements, totalPages);
     }
 
-    public <R> PageResult<R> map(java.util.function.Function<T, R> mapper) {
+    public <R> PageResult<R> map(Function<T, R> mapper) {
         return new PageResult<>(items.stream().map(mapper).toList(), page, size, totalElements, totalPages);
     }
 }
