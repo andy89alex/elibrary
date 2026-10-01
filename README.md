@@ -453,12 +453,6 @@ Known gaps in what is here, first — these are small, but they are real:
   but `%` and `_` in the user's own input are passed through. `?q=%` therefore matches every
   row (verified: it returns all 15). Harmless here, wrong at scale, and fixed by escaping the
   two metacharacters and declaring an `escape` clause.
-- **`BookSearchCriteria`'s canonical constructor bypasses its own defaulting and clamping.**
-  The `of(...)` factory does the work — null-blanking, page floor, `size` clamp to 100 — but
-  the record's generated constructor is public and does none of it. Nothing calls it raw
-  today, so the clamp holds in practice; it is just not enforced at every entry point. A
-  compact constructor doing the validation, with `of(...)` reduced to defaulting, would close
-  it.
 - **Invariant 3 is not a database constraint.** "No two active loans of the same book per
   member" is enforced in the domain only. On PostgreSQL it would be
   `create unique index ... on loans (member_id, book_id) where returned_at is null`; H2 does
@@ -468,7 +462,7 @@ Known gaps in what is here, first — these are small, but they are real:
 Then:
 
 - **Postgres and Testcontainers.** The schema is already Flyway-managed and dialect-neutral;
-  add the partial unique index above and the third gap closes with it.
+  add the partial unique index above and that gap closes with it.
 - **Domain events and an outbox.** `BookReturned` is the natural first event, and it is what a
   reservation queue would consume. A transactional outbox keeps publication atomic with the
   state change.
