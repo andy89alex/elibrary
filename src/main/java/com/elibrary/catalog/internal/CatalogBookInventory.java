@@ -1,6 +1,7 @@
 package com.elibrary.catalog.internal;
 
 import com.elibrary.lending.domain.BookInventory;
+import com.elibrary.lending.domain.BookUnavailable;
 import com.elibrary.shared.error.BookNotFound;
 import com.elibrary.shared.BookId;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,9 @@ class CatalogBookInventory implements BookInventory {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void checkout(BookId bookId) {
-        lock(bookId).checkoutCopy();
+        if (!lock(bookId).checkoutCopy()) {
+            throw new BookUnavailable(bookId);
+        }
     }
 
     @Override

@@ -3,7 +3,6 @@ package com.elibrary.catalog.internal;
 import com.elibrary.catalog.BookDetail;
 import com.elibrary.catalog.BookSummary;
 import com.elibrary.catalog.ContentKind;
-import com.elibrary.lending.domain.BookUnavailable;
 import com.elibrary.shared.BookId;
 import com.elibrary.shared.Isbn;
 import jakarta.persistence.Column;
@@ -62,11 +61,18 @@ class BookRecord {
         // required by JPA
     }
 
-    void checkoutCopy() {
+    /**
+     * Takes one copy, returning {@code false} if none are available. Returns a boolean
+     * rather than throwing so this persistence-model class names no lending type; the
+     * adapter that implements lending's {@code BookInventory} port translates a {@code false}
+     * into {@code BookUnavailable}.
+     */
+    boolean checkoutCopy() {
         if (availableCopies <= 0) {
-            throw new BookUnavailable(new BookId(id));
+            return false;
         }
         availableCopies--;
+        return true;
     }
 
     void restoreCopy() {
