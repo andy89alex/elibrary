@@ -186,12 +186,20 @@ the JPA adapter sits outside in `lending.internal`. Isolation costs a separate e
 explicit mapper, and here that cost buys something real — the rules are unit-testable in
 milliseconds with no container and no database.
 
-**`catalog` is CQRS-lite.** It is read-mostly and owns exactly one piece of mutable state
-(copy counts). Giving it a matching aggregate, repository port, and mapper stack would spend
-a large share of the budget on plumbing that protects invariants which do not exist. Instead
-it exposes a small public read API (`BookCatalog` plus three records) over a package-private
-JPA internal, and `BookSummary`/`BookDetail` double as the read models — no separate DTO
-layer between the query and the wire.
+**`catalog` is CQRS-lite.** It is read-mostly and owns exactly one invariant (copy counts
+stay in range), against lending's four. The asymmetry is in how much structure that one
+invariant earns, not in whether the structure exists at all — both modules have the same
+shapes, just scaled differently. `BookCatalog` is implemented by a package-private internal
+the same way `LoanRepository` is, though `BookCatalog` is a module facade defined by its
+owner rather than a port defined by its consumer — `catalog` decides its own read API;
+nothing outside it dictates the shape. `BookRecord.checkoutCopy`/`restoreCopy` *is* an
+aggregate method, guarding the one invariant catalog has. And catalog has the same two
+mapping hops lending does — `BookRecord::toSummary` into `BookSummaryResponse::from`, versus
+`LoanMapper::toDomain` into `LoanResponse::of` — so there is no separate-DTO-layer saving
+either. What `catalog` actually skips is a distinct aggregate type behind the entity: one
+annotated record plays both roles because one invariant does not justify splitting it into
+two. Giving catalog `lending`'s full structure for a single invariant would have spent a
+large share of the budget on plumbing that protects rules which do not exist here.
 
 Complexity is allocated in proportion to business risk. A uniform application of either
 pattern would have been the easier answer to defend in the abstract and the worse answer
@@ -208,8 +216,10 @@ that fail the build on drift. They enforce:
 - `lending.domain` does not depend on `lending.application`, `lending.internal`, or
   `lending.web` — dependencies point inwards
 - nothing in `lending` reaches into `catalog.internal`
-- nothing in `catalog` reaches into `lending.internal`, `.application`, or `.web` (it may
-  implement the domain's port, and only that)
+- nothing in `catalog` reaches into `lending.internal`, `.application`, or `.web` (the rule
+  only bans those three packages; it does not restrict which catalog classes may touch
+  `lending.domain`, so it leaves room for `catalog` to depend on `lending.domain` — the
+  catalogue implementing lending's port)
 - `shared` depends on no module
 - `@Entity` classes reside only inside `catalog.internal` / `lending.internal`
 - Spring's `Page` never reaches a `..web..` package — `PageResult` is the public contract
@@ -330,6 +340,22 @@ without touching the web layer. Unexpected failures are logged with the request 
 answered with a fixed message — exception text routinely carries connection strings or user
 data.
 
+The 409s above are only part of the contract. `ApiExceptionHandler` and the domain exception
+classes define the complete set of codes a client can branch on:
+
+| `code` | HTTP status | Raised when |
+|---|---|---|
+| `NO_COPIES_AVAILABLE` | 409 | Borrowing a book with zero available copies |
+| `LOAN_LIMIT_REACHED` | 409 | Member is already at `maxConcurrentLoans` |
+| `ALREADY_BORROWED` | 409 | Member already holds an active loan of this book |
+| `LOAN_ALREADY_RETURNED` | 409 | Returning a loan that is already closed |
+| `VALIDATION_FAILED` | 400 | A request body fails `@Valid` binding |
+| `INVALID_REQUEST` | 400 | A malformed path/query value, e.g. a non-UUID id or an unlisted sort field |
+| `UNAUTHENTICATED` | 401 | Missing or invalid HTTP Basic credentials |
+| `BOOK_NOT_FOUND` | 404 | No catalogue item exists for the given id |
+| `LOAN_NOT_FOUND` | 404 | No loan exists for this member with the given id (also used when the loan belongs to someone else) |
+| `INTERNAL_ERROR` | 500 | Any exception not otherwise mapped |
+
 **`BookNotFound` and `BookUnavailable` deliberately live in different packages.**
 `BookNotFound` is in `com.elibrary.shared.error`; `BookUnavailable` is in
 `com.elibrary.lending.domain`. The asymmetry is the point. "No such book" is shared
@@ -415,7 +441,7 @@ page of loans issues one catalogue lookup rather than one per row.
 | Member management | A separate domain; no invariant here needs it |
 | Full-text search | `LIKE` is honest at this scale. Production needs a real index — the query is isolated in one repository method |
 | Cursor pagination | Offset is correct for a 15-row seeded catalogue. Cursor paging is the right answer once the table is large and writes are frequent |
-| Idempotency keys | Invariant 3 already makes a repeated borrow of the same book safe, so the common double-submit is handled |
+| Idempotency keys | Not implemented. Invariant 3 ("no two active loans of the same book per member") is enforced in the domain only — `BorrowBook.handle` reads the member's active position with no lock — so it does *not* make a concurrent double-submit safe: two simultaneous `POST /loans` for the same member and book can both pass the check and both save, leaving two active loans. The two requests do serialise on the book row inside `checkout`, which prevents overselling the book, but that is invariant 1, not invariant 3. Closing double-submit for real needs either an idempotency key or the partial unique index named below (`create unique index ... on loans (member_id, book_id) where returned_at is null`), which Postgres supports and H2 does not |
 | Fines and overdue penalties | Policy-heavy and adds no architectural signal |
 | Librarian endpoints | The `LIBRARIAN` role is seeded and the filter chain is in place, but no endpoint uses it. Acquisitions and withdrawals are catalogue *writes*, which is the one thing the CQRS-lite catalogue is not built for — see the risk noted above |
 
@@ -451,8 +477,10 @@ Then:
   and tracing across the two modules — lock contention is the first thing that will hurt under
   load, and right now nothing would tell you.
 - **Rate limiting** on borrow, to make the contended path harder to abuse.
-- **Turn off the H2 console.** It is enabled for convenience here and `permitAll` in the
-  filter chain. That is a development affordance, not a production one.
+- **The H2 console is disabled** (`spring.h2.console.enabled: false`, and `/h2-console/**`
+  is no longer in the security filter chain's permit list). It was enabled and unauthenticated
+  earlier in development, which would have let any caller run arbitrary SQL against the
+  running service; it is switched off now and should stay off in production.
 - **Splitting the modules into services** is the interesting one. The compiler-enforced
   boundary means the code would move cleanly, but the two-step borrow stops being atomic. It
   would become a reservation with a timeout and a compensating release, coordinated through the
