@@ -164,6 +164,20 @@ class BookControllerTest {
     }
 
     @Test
+    void aSortOfJustACommaIs400NotAServerError() throws Exception {
+        mockMvc.perform(get("/api/v1/books").param("sort", ","))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void aSortOfTwoCommasIs400NotAServerError() throws Exception {
+        mockMvc.perform(get("/api/v1/books").param("sort", ",,"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     void anUnknownBookIs404WithTheBookNotFoundCode() throws Exception {
         when(catalog.findById(any())).thenReturn(Optional.empty());
 

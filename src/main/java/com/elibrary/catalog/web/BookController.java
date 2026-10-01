@@ -68,8 +68,9 @@ class BookController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
 
+        String[] sortParts = splitSort(sort);
         BookSearchCriteria criteria = BookSearchCriteria.of(
-                q, author, availableOnly, sortField(sort), ascending(sort), page, size);
+                q, author, availableOnly, sortField(sortParts), ascending(sortParts), page, size);
 
         return catalog.search(criteria).map(BookSummaryResponse::from);
     }
@@ -82,26 +83,29 @@ class BookController {
     }
 
     /**
-     * Parses {@code field,direction}. An unrecognised field is a 400 rather than a silent
-     * fallback: quietly ignoring it would make a client believe its ordering was applied.
+     * Splits {@code field,direction} once, with a bounded limit so empty tokens survive.
+     * An unbounded split drops trailing empties, which previously made "," a 500 rather than
+     * a 400: both {@code sortField} and {@code ascending} used to parse the raw string
+     * independently and had drifted out of sync on exactly this edge case.
      */
-    private static BookSortField sortField(String sort) {
-        if (sort == null || sort.isBlank()) {
+    private static String[] splitSort(String sort) {
+        return sort == null || sort.isBlank() ? new String[0] : sort.split(",", 2);
+    }
+
+    /**
+     * An unrecognised field is a 400 rather than a silent fallback: quietly ignoring it would
+     * make a client believe its ordering was applied.
+     */
+    private static BookSortField sortField(String[] parts) {
+        if (parts.length == 0) {
             return BookSortField.TITLE;
         }
-        String field = sort.split(",")[0].trim();
+        String field = parts[0].trim();
         return BookSortField.parse(field).orElseThrow(() -> new IllegalArgumentException(
                 "Cannot sort by '" + field + "'. Sortable fields: title, author, publicationYear."));
     }
 
-    private static boolean ascending(String sort) {
-        if (sort == null || sort.isBlank()) {
-            return true;
-        }
-        String[] parts = sort.split(",", 2);
-        if (parts.length < 2 || parts[1].isBlank()) {
-            return true;
-        }
-        return !"desc".equalsIgnoreCase(parts[1].trim());
+    private static boolean ascending(String[] parts) {
+        return parts.length < 2 || parts[1].isBlank() || !"desc".equalsIgnoreCase(parts[1].trim());
     }
 }
