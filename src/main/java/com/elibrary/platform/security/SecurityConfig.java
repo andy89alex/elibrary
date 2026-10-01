@@ -36,12 +36,10 @@ class SecurityConfig {
                         .requestMatchers(
                                 "/actuator/health",
                                 "/v3/api-docs", "/v3/api-docs/**",
-                                "/swagger-ui.html", "/swagger-ui/**",
-                                "/h2-console/**")
+                                "/swagger-ui.html", "/swagger-ui/**")
                         .permitAll()
                         .anyRequest().authenticated())
                 .httpBasic(basic -> basic.authenticationEntryPoint(entryPoint))
-                .exceptionHandling(handling -> handling.authenticationEntryPoint(entryPoint))
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .build();
     }
