@@ -452,6 +452,17 @@ The same reasoning runs one layer down. `ViewAllLoans` is a separate service fro
 `ViewLoans` rather than a boolean on it, because `ViewLoans` takes a `MemberId` it cannot be
 called without — the guarantee lives in the signature, where a parameter cannot be forgotten.
 
+**401 and 403 need their own writers, because they never reach the exception handler.**
+`ApiExceptionHandler` is a `@RestControllerAdvice`, so it only ever sees exceptions thrown
+*out of a controller*. Authentication and authorisation both fail earlier, inside the
+security filter chain, before any handler method runs — so the advice cannot shape those
+two responses no matter how it is written. Left alone, the API would answer every business
+error as RFC 9457 with a `code` and those two in Spring's own default shape, which is
+exactly the sort of inconsistency a client discovers in production. `ProblemDetailEntryPoint`
+and `ProblemDetailAccessDeniedHandler` write the same shape from inside the chain. The cost
+is a second place that knows the error format; `ProblemDetails` is not reusable there
+because these two run without a `HandlerMethod` and build their payload directly.
+
 **403 here, 404 there, and the difference is deliberate.** `/admin/loans` answers 403 to a
 member: the resource plainly exists, the caller simply lacks the role, and hiding that
 teaches nothing. A member asking for *another member's* loan still gets 404, because there
@@ -470,9 +481,16 @@ the 201 carries a `Location` pointing at a genuinely retrievable resource — `G
 and makes illegal transitions expressible in a request body. A named action is more honest
 about the domain.
 
-**No member id in any URL.** Identity comes from the authenticated principal, translated into
-a `MemberId` by an argument resolver at the boundary. Nothing behind the controller knows
-Spring Security exists, and no member's data can be requested by guessing a URL.
+**No member id in any URL decides *identity*.** Who you are comes from the authenticated
+principal, translated into a `MemberId` by an argument resolver at the boundary. Nothing
+behind the controller knows Spring Security exists, and no member-facing endpoint accepts a
+member id at all — so one member's loans cannot be requested by guessing a URL.
+
+`GET /admin/loans?memberId=alice` is the one place a member id appears in a URL, and it is
+a *filter*, not a claim of identity: the caller is still whoever the credentials say, and
+the endpoint is reachable only with the `LIBRARIAN` role. The distinction matters because
+the dangerous version of this parameter is the one that answers "who am I"; this one answers
+"whose rows do I want to see", on an endpoint that is already allowed to see everyone's.
 
 **H2 with Flyway, not Postgres with Testcontainers.** Docker was unavailable in the
 environment this was built in, and shipping tests the author has never executed would be
@@ -515,7 +533,8 @@ The 13 integration tests are `LendingFlowIT` (5), `LibrarianLedgerIT` (5),
 | Persistence | `@DataJpaTest` | queries, paging, copy guards |
 | End-to-end | `@SpringBootTest` + `MockMvc` | the whole flow over HTTP with real auth |
 | Authorisation | `@SpringBootTest` + `MockMvc` | role gating over the real filter chain — a standalone web test wires no security and would pass regardless |
-| Concurrency | `@SpringBootTest` + `ExecutorService` | eight members, one copy, exactly one winner |
+| Concurrency (invariant 1) | `@SpringBootTest` + `ExecutorService` | eight members, one copy, exactly one winner |
+| Concurrency (invariant 3) | `@SpringBootTest` + `ExecutorService` | one member double-submitting, exactly one loan, and the loser's copy returned |
 | Architecture | ArchUnit | domain purity and module isolation |
 
 Repository ports are backed by **fakes, not mocks**. `InMemoryLoanRepository` is short enough
