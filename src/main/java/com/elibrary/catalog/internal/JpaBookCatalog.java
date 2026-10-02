@@ -61,7 +61,21 @@ class JpaBookCatalog implements BookCatalog {
         return books.findByIdIn(raw).stream().map(BookRecord::toSummary).toList();
     }
 
+    /**
+     * Wraps a user term in wildcards, escaping the two LIKE metacharacters first so that a
+     * {@code %} or {@code _} the caller typed matches itself. Without this, {@code ?q=%}
+     * returns the entire table. The escape character is a backslash, declared by the
+     * {@code escape} clause on every {@code like} in {@link BookJpaRepository#search}; it is
+     * escaped first so a literal backslash in the term cannot consume the character after it.
+     */
     private static String like(String term) {
-        return term == null ? null : "%" + term.toLowerCase(Locale.ROOT) + "%";
+        if (term == null) {
+            return null;
+        }
+        String escaped = term.toLowerCase(Locale.ROOT)
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        return "%" + escaped + "%";
     }
 }

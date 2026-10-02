@@ -4,10 +4,12 @@ import com.elibrary.lending.domain.ActiveLoans;
 import com.elibrary.lending.domain.Loan;
 import com.elibrary.lending.domain.LoanId;
 import com.elibrary.lending.domain.LoanRepository;
+import com.elibrary.lending.domain.LoanSearchCriteria;
 import com.elibrary.lending.domain.LoanStatusFilter;
 import com.elibrary.shared.MemberId;
 import com.elibrary.shared.PageResult;
 
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,6 +58,27 @@ class InMemoryLoanRepository implements LoanRepository {
 
         List<Loan> window = matching.stream().skip((long) page * size).limit(size).toList();
         return PageResult.of(window, page, size, matching.size());
+    }
+
+    @Override
+    public PageResult<Loan> search(LoanSearchCriteria criteria, LocalDate today) {
+        List<Loan> matching = store.values().stream()
+                .filter(loan -> criteria.member().map(loan::belongsTo).orElse(true))
+                .filter(loan -> criteria.book().map(loan::isFor).orElse(true))
+                .filter(loan -> switch (criteria.status()) {
+                    case ACTIVE -> loan.isActive();
+                    case RETURNED -> !loan.isActive();
+                    case ALL -> true;
+                })
+                .filter(loan -> !criteria.overdueOnly() || (loan.isActive() && loan.dueOn().isBefore(today)))
+                .sorted(Comparator.comparing(Loan::borrowedAt).reversed())
+                .toList();
+
+        List<Loan> window = matching.stream()
+                .skip((long) criteria.page() * criteria.size())
+                .limit(criteria.size())
+                .toList();
+        return PageResult.of(window, criteria.page(), criteria.size(), matching.size());
     }
 
     void seed(Loan... loans) {

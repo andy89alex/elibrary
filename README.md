@@ -15,17 +15,18 @@ Requires **JDK 21 or newer** and nothing else — no database, no Docker.
 mvn spring-boot:run
 ```
 
-Then open <http://localhost:8080/swagger-ui.html> (it 302-redirects to the Swagger UI index).
+Then open <http://localhost:9123/swagger-ui.html> (it 302-redirects to the Swagger UI index).
 
 ```bash
-mvn clean verify     # full build: 124 unit tests + 6 integration tests
+mvn clean verify     # full build: 151 unit tests + 11 integration tests
 mvn test             # unit tests only (~11s)
 ```
 
-If port 8080 is taken:
+The port is **9123** (`server.port` in `application.yml`), chosen because 8080 is commonly
+occupied. If 9123 is taken too, override it without editing the file:
 
 ```bash
-mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=9123
+mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=9124
 ```
 
 The database is in-memory H2, migrated and seeded by Flyway on startup with 15 items
@@ -63,6 +64,7 @@ Base path `/api/v1`. All endpoints require authentication.
 | GET | `/loans` | Your loans; defaults to currently borrowed |
 | GET | `/loans/{loanId}` | One of your loans |
 | POST | `/loans/{loanId}/return` | Return |
+| GET | `/admin/loans` | **Librarian only.** Every member's loans: who holds what, due when, overdue |
 
 ### Query parameters
 
@@ -78,6 +80,10 @@ For `/books`:
 
 For `/loans`: `status` (`active` \| `returned` \| `all`, default `active`), `page`, `size`.
 
+For `/admin/loans`: all of the above plus `memberId` and `bookId`, and `overdue=true` to keep
+only active loans past their due date. Every filter is optional and they combine with AND, so
+supplying several narrows the result; supplying none returns the whole ledger.
+
 ### Examples
 
 Each of these was run against a live server while writing this file.
@@ -85,7 +91,7 @@ Each of these was run against a live server while writing this file.
 ```bash
 # Browse: search, available only, newest first
 curl -u alice:password \
-  'http://localhost:8080/api/v1/books?q=domain&available=true&sort=publicationYear,desc&page=0&size=5'
+  'http://localhost:9123/api/v1/books?q=domain&available=true&sort=publicationYear,desc&page=0&size=5'
 ```
 
 ```json
@@ -99,7 +105,7 @@ curl -u alice:password \
 
 ```bash
 # Borrow — 201 with Location: /api/v1/loans/{id}
-curl -u alice:password -X POST http://localhost:8080/api/v1/loans \
+curl -u alice:password -X POST http://localhost:9123/api/v1/loans \
   -H 'Content-Type: application/json' \
   -d '{"bookId":"11111111-1111-1111-1111-111111111101"}'
 ```
@@ -114,14 +120,14 @@ curl -u alice:password -X POST http://localhost:8080/api/v1/loans \
 
 ```bash
 # Currently borrowed (status=all also shows returned loans)
-curl -u alice:password http://localhost:8080/api/v1/loans
+curl -u alice:password http://localhost:9123/api/v1/loans
 
 # Return
 curl -u alice:password -X POST \
-  http://localhost:8080/api/v1/loans/cad7b5a7-01fd-4e18-beaf-8887420aa9e4/return
+  http://localhost:9123/api/v1/loans/cad7b5a7-01fd-4e18-beaf-8887420aa9e4/return
 
 # A refusal: book ...110 is seeded with zero available copies
-curl -u alice:password -X POST http://localhost:8080/api/v1/loans \
+curl -u alice:password -X POST http://localhost:9123/api/v1/loans \
   -H 'Content-Type: application/json' \
   -d '{"bookId":"11111111-1111-1111-1111-111111111110"}'
 ```
@@ -131,6 +137,42 @@ curl -u alice:password -X POST http://localhost:8080/api/v1/loans \
  "title":"No copies available","status":409,
  "detail":"Book 11111111-1111-1111-1111-111111111110 has no copies available.",
  "instance":"/api/v1/loans","code":"NO_COPIES_AVAILABLE"}
+```
+
+```bash
+# Librarian: who is holding a given book right now
+curl -u librarian:password \
+  'http://localhost:9123/api/v1/admin/loans?bookId=11111111-1111-1111-1111-111111111101'
+```
+
+```json
+{"items":[
+  {"id":"1c66811f-684f-4d38-bb76-d0aaae8a56a5","memberId":"bob",
+   "book":{"id":"11111111-1111-1111-1111-111111111101","title":"Domain-Driven Design",
+           "author":"Eric Evans","kind":"BOOK"},
+   "borrowedAt":"2026-10-02T08:45:48.956926Z","dueOn":"2026-10-16",
+   "returnedAt":null,"status":"ACTIVE","overdue":false},
+  {"id":"60b21645-25a3-4b0a-a007-a4185b9de0a1","memberId":"alice",
+   "book":{"id":"11111111-1111-1111-1111-111111111101","title":"Domain-Driven Design",
+           "author":"Eric Evans","kind":"BOOK"},
+   "borrowedAt":"2026-10-02T08:45:48.717832Z","dueOn":"2026-10-16",
+   "returnedAt":null,"status":"ACTIVE","overdue":false}],
+ "page":0,"size":20,"totalElements":2,"totalPages":1}
+```
+
+```bash
+# Everything overdue, across all members
+curl -u librarian:password 'http://localhost:9123/api/v1/admin/loans?status=all&overdue=true'
+
+# A member calling the same endpoint
+curl -u alice:password http://localhost:9123/api/v1/admin/loans
+```
+
+```json
+{"type":"https://elibrary.example/problems/forbidden",
+ "title":"Forbidden","status":403,
+ "detail":"Your account is not permitted to access this resource.",
+ "instance":"/api/v1/admin/loans","code":"FORBIDDEN"}
 ```
 
 ## Architecture
@@ -352,6 +394,7 @@ classes define the complete set of codes a client can branch on:
 | `VALIDATION_FAILED` | 400 | A request body fails `@Valid` binding |
 | `INVALID_REQUEST` | 400 | A malformed path/query value, e.g. a non-UUID id or an unlisted sort field |
 | `UNAUTHENTICATED` | 401 | Missing or invalid HTTP Basic credentials |
+| `FORBIDDEN` | 403 | Authenticated, but the role does not permit this resource (e.g. a `MEMBER` calling `/admin/**`) |
 | `BOOK_NOT_FOUND` | 404 | No catalogue item exists for the given id |
 | `LOAN_NOT_FOUND` | 404 | No loan exists for this member with the given id (also used when the loan belongs to someone else) |
 | `INTERNAL_ERROR` | 500 | Any exception not otherwise mapped |
@@ -365,6 +408,26 @@ never raises it. The catalogue raises it only because it *implements* lending's
 `BookInventory` port, and an adapter depending on its port's package — exceptions included —
 is the correct direction of dependency. Put `BookUnavailable` in `shared` and the shared
 kernel starts accumulating one module's vocabulary.
+
+**The librarian ledger is its own resource, not a flag on `/loans`.** `GET /loans` means
+"my loans" and derives its scope from the principal — that is the property which stops one
+member reading another's data. Making the same URL return different rows depending on the
+caller's role would turn a flat contract into a conditional one: harder to document, harder
+to test, and easy to widen by accident. `GET /admin/loans` is a separate path with its own
+response type carrying `memberId`, and the prefix gives authorisation a single place to
+stand — `/api/v1/admin/**` is restricted to `LIBRARIAN` in the filter chain rather than by
+an annotation on each handler. The cost is that a new path mistyped under `/admin` would
+not be guarded, so `LibrarianLedgerIT` asserts the refusal from outside, over the real
+chain: a standalone `MockMvc` test would pass with no security wired at all.
+
+The same reasoning runs one layer down. `ViewAllLoans` is a separate service from
+`ViewLoans` rather than a boolean on it, because `ViewLoans` takes a `MemberId` it cannot be
+called without — the guarantee lives in the signature, where a parameter cannot be forgotten.
+
+**403 here, 404 there, and the difference is deliberate.** `/admin/loans` answers 403 to a
+member: the resource plainly exists, the caller simply lacks the role, and hiding that
+teaches nothing. A member asking for *another member's* loan still gets 404, because there
+the existence of the row is itself the secret.
 
 **Someone else's loan returns 404, not 403.** 403 confirms the loan exists. Applied
 consistently to `GET /loans/{id}` and `POST /loans/{id}/return`.
@@ -409,11 +472,12 @@ a dedicated projection would earn its keep.
 ## Testing
 
 ```bash
-mvn test        # 124 unit tests: domain, application, web, persistence, architecture
-mvn verify      # the above plus 6 integration tests
+mvn test        # 151 unit tests: domain, application, web, persistence, architecture
+mvn verify      # the above plus 11 integration tests
 ```
 
-The 6 integration tests are `LendingFlowIT` (5) and `LastCopyConcurrencyIT` (1).
+The 11 integration tests are `LendingFlowIT` (5), `LibrarianLedgerIT` (5) and
+`LastCopyConcurrencyIT` (1).
 
 | Layer | Tooling | Subject |
 |---|---|---|
@@ -422,6 +486,7 @@ The 6 integration tests are `LendingFlowIT` (5) and `LastCopyConcurrencyIT` (1).
 | Web | standalone `MockMvc` | binding, response shape, error mapping |
 | Persistence | `@DataJpaTest` | queries, paging, copy guards |
 | End-to-end | `@SpringBootTest` + `MockMvc` | the whole flow over HTTP with real auth |
+| Authorisation | `@SpringBootTest` + `MockMvc` | role gating over the real filter chain — a standalone web test wires no security and would pass regardless |
 | Concurrency | `@SpringBootTest` + `ExecutorService` | eight members, one copy, exactly one winner |
 | Architecture | ArchUnit | domain purity and module isolation |
 
@@ -443,16 +508,12 @@ page of loans issues one catalogue lookup rather than one per row.
 | Cursor pagination | Offset is correct for a 15-row seeded catalogue. Cursor paging is the right answer once the table is large and writes are frequent |
 | Idempotency keys | Not implemented. Invariant 3 ("no two active loans of the same book per member") is enforced in the domain only — `BorrowBook.handle` reads the member's active position with no lock — so it does *not* make a concurrent double-submit safe: two simultaneous `POST /loans` for the same member and book can both pass the check and both save, leaving two active loans. The two requests do serialise on the book row inside `checkout`, which prevents overselling the book, but that is invariant 1, not invariant 3. Closing double-submit for real needs either an idempotency key or the partial unique index named below (`create unique index ... on loans (member_id, book_id) where returned_at is null`), which Postgres supports and H2 does not |
 | Fines and overdue penalties | Policy-heavy and adds no architectural signal |
-| Librarian endpoints | The `LIBRARIAN` role is seeded and the filter chain is in place, but no endpoint uses it. Acquisitions and withdrawals are catalogue *writes*, which is the one thing the CQRS-lite catalogue is not built for — see the risk noted above |
+| Librarian *writes* (acquisitions, withdrawals) | `GET /admin/loans` gives the librarian a read over the ledger, but nothing mutates the catalogue. Acquisitions and withdrawals are catalogue writes, which is the one thing the CQRS-lite catalogue is not built for — see the risk noted above. The read needed no new structure; a write would |
 
 ## If this went to production
 
 Known gaps in what is here, first — these are small, but they are real:
 
-- **`LIKE` wildcards are not escaped.** `q` and `author` are lowercased and wrapped in `%`,
-  but `%` and `_` in the user's own input are passed through. `?q=%` therefore matches every
-  row (verified: it returns all 15). Harmless here, wrong at scale, and fixed by escaping the
-  two metacharacters and declaring an `escape` clause.
 - **Invariant 3 is not a database constraint.** "No two active loans of the same book per
   member" is enforced in the domain only. On PostgreSQL it would be
   `create unique index ... on loans (member_id, book_id) where returned_at is null`; H2 does

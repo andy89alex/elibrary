@@ -19,11 +19,15 @@ interface BookJpaRepository extends JpaRepository<BookRecord, UUID> {
      * Free-text and attribute search. Every filter is applied in SQL, including
      * availability, so the paging window and totals are correct. Terms arrive
      * pre-lowercased and pre-wrapped in wildcards to keep the JPQL portable.
+     *
+     * <p>The {@code escape} clauses pair with the escaping in
+     * {@code JpaBookCatalog.like}: without them a {@code %} or {@code _} typed by the
+     * caller would act as a wildcard rather than matching itself.
      */
     @Query("""
             select b from BookRecord b
-            where (:q is null or lower(b.title) like :q or lower(b.author) like :q)
-              and (:author is null or lower(b.author) like :author)
+            where (:q is null or lower(b.title) like :q escape '\\' or lower(b.author) like :q escape '\\')
+              and (:author is null or lower(b.author) like :author escape '\\')
               and (:availableOnly = false or b.availableCopies > 0)
             """)
     Page<BookRecord> search(@Param("q") String q,

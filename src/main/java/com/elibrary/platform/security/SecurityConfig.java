@@ -28,7 +28,8 @@ import org.springframework.security.web.SecurityFilterChain;
 class SecurityConfig {
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, ProblemDetailEntryPoint entryPoint) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http, ProblemDetailEntryPoint entryPoint,
+                                    ProblemDetailAccessDeniedHandler accessDeniedHandler) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -38,8 +39,16 @@ class SecurityConfig {
                                 "/v3/api-docs", "/v3/api-docs/**",
                                 "/swagger-ui.html", "/swagger-ui/**")
                         .permitAll()
+                        // One prefix carries every librarian-only resource, so authorisation
+                        // stays a single rule here rather than an annotation per handler.
+                        // LibrarianLedgerIT asserts the rule from outside: a path added under
+                        // /admin without this guard would not quietly ship unprotected.
+                        .requestMatchers("/api/v1/admin/**").hasRole("LIBRARIAN")
                         .anyRequest().authenticated())
                 .httpBasic(basic -> basic.authenticationEntryPoint(entryPoint))
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint(entryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .build();
     }

@@ -4,6 +4,7 @@ import com.elibrary.lending.domain.LendingPolicy;
 import com.elibrary.lending.domain.Loan;
 import com.elibrary.lending.domain.LoanId;
 import com.elibrary.lending.domain.LoanRepository;
+import com.elibrary.lending.domain.LoanSearchCriteria;
 import com.elibrary.lending.domain.LoanStatusFilter;
 import com.elibrary.shared.BookId;
 import com.elibrary.shared.MemberId;
@@ -130,5 +131,97 @@ class JpaLoanRepositoryTest {
         assertThat(firstPage.totalPages()).isEqualTo(2);
         assertThat(loans.findFor(ALICE, LoanStatusFilter.ALL, 1, 2).items())
                 .extracting(Loan::bookId).containsExactly(DDD);
+    }
+
+    // --- librarian search ---------------------------------------------------------------
+
+    private static final LocalDate TODAY = LocalDate.of(2026, 10, 20);
+
+    /** alice: DDD active+overdue, Refactoring returned. bob: DDD active, not yet due. */
+    private void seedLedger() {
+        loans.save(Loan.open(ALICE, DDD, POLICY, at("2026-10-01")));          // due 2026-10-15
+        loans.save(Loan.open(ALICE, REFACTORING, POLICY, at("2026-10-02")).returnNow(at("2026-10-03")));
+        loans.save(Loan.open(BOB, DDD, POLICY, at("2026-10-18")));            // due 2026-11-01
+    }
+
+    private PageResult<Loan> search(MemberId member, BookId book, LoanStatusFilter status, boolean overdueOnly) {
+        return loans.search(LoanSearchCriteria.of(member, book, status, overdueOnly, 0, 50), TODAY);
+    }
+
+    @Test
+    void searchWithNoFiltersReturnsEveryMembersLoans() {
+        seedLedger();
+
+        assertThat(search(null, null, LoanStatusFilter.ALL, false).items())
+                .extracting(Loan::memberId)
+                .containsExactlyInAnyOrder(ALICE, ALICE, BOB);
+    }
+
+    @Test
+    void searchNarrowsByMember() {
+        seedLedger();
+
+        assertThat(search(ALICE, null, LoanStatusFilter.ALL, false).items())
+                .extracting(Loan::memberId).containsOnly(ALICE)
+                .hasSize(2);
+    }
+
+    @Test
+    void searchNarrowsByBookAcrossMembers() {
+        seedLedger();
+
+        assertThat(search(null, DDD, LoanStatusFilter.ALL, false).items())
+                .extracting(Loan::memberId)
+                .containsExactlyInAnyOrder(ALICE, BOB);
+    }
+
+    @Test
+    void searchNarrowsByStatus() {
+        seedLedger();
+
+        assertThat(search(null, null, LoanStatusFilter.ACTIVE, false).items())
+                .allMatch(Loan::isActive)
+                .hasSize(2);
+        assertThat(search(null, null, LoanStatusFilter.RETURNED, false).items())
+                .extracting(Loan::bookId).containsExactly(REFACTORING);
+    }
+
+    @Test
+    void searchNarrowsToOverdueLoansOnly() {
+        seedLedger();
+
+        assertThat(search(null, null, LoanStatusFilter.ALL, true).items())
+                .as("alice's DDD loan was due 2026-10-15; bob's is due 2026-11-01")
+                .extracting(Loan::memberId).containsExactly(ALICE);
+    }
+
+    @Test
+    void overdueNeverIncludesAReturnedLoanEvenPastItsDueDate() {
+        loans.save(Loan.open(ALICE, DDD, POLICY, at("2026-10-01")).returnNow(at("2026-10-02")));
+
+        assertThat(search(null, null, LoanStatusFilter.ALL, true).items()).isEmpty();
+    }
+
+    @Test
+    void searchCombinesFiltersWithAnd() {
+        seedLedger();
+
+        assertThat(search(BOB, DDD, LoanStatusFilter.ACTIVE, true).items())
+                .as("bob holds DDD and it is active, but it is not overdue")
+                .isEmpty();
+        assertThat(search(ALICE, DDD, LoanStatusFilter.ACTIVE, true).items())
+                .extracting(Loan::memberId).containsExactly(ALICE);
+    }
+
+    @Test
+    void searchPagesNewestFirst() {
+        seedLedger();
+
+        PageResult<Loan> firstPage = loans.search(
+                LoanSearchCriteria.of(null, null, LoanStatusFilter.ALL, false, 0, 2), TODAY);
+
+        assertThat(firstPage.items()).extracting(Loan::memberId).containsExactly(BOB, ALICE);
+        assertThat(firstPage.totalElements()).isEqualTo(3);
+        assertThat(firstPage.totalPages()).isEqualTo(2);
     }
 }

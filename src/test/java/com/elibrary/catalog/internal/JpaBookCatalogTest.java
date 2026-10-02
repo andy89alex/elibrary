@@ -103,6 +103,39 @@ class JpaBookCatalogTest {
     }
 
     @Test
+    void treatsAPercentInTheSearchTermAsALiteralCharacter() {
+        assertThat(catalog.search(criteria("%", null, false)).totalElements())
+                .as("an unescaped %% would match every row")
+                .isZero();
+    }
+
+    @Test
+    void treatsAnUnderscoreInTheSearchTermAsALiteralCharacter() {
+        assertThat(catalog.search(criteria("_ava", null, false)).totalElements())
+                .as("an unescaped _ is a single-character wildcard and would match 'Java'")
+                .isZero();
+    }
+
+    @Test
+    void treatsABackslashInTheSearchTermAsALiteralCharacter() {
+        assertThat(catalog.search(criteria("\\", null, false)).totalElements())
+                .as("the escape character itself must not corrupt the pattern")
+                .isZero();
+    }
+
+    @Test
+    void escapingAppliesToTheAuthorFilterToo() {
+        assertThat(catalog.search(criteria(null, "%", false)).totalElements()).isZero();
+    }
+
+    @Test
+    void stillMatchesOrdinaryTermsAfterEscaping() {
+        assertThat(catalog.search(criteria("java", null, false)).items())
+                .extracting(BookSummary::title)
+                .containsExactlyInAnyOrder("Effective Java", "Java Concurrency in Practice");
+    }
+
+    @Test
     void detailIsEmptyForAnUnknownId() {
         assertThat(catalog.findById(BookId.newId())).isEmpty();
     }
