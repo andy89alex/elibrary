@@ -36,6 +36,14 @@ class LoanEntity {
     @Column(name = "returned_at")
     private Instant returnedAt;
 
+    /**
+     * Mirrors {@code bookId} while the loan is open and is NULL once it is returned, so the
+     * unique constraint on {@code (member_id, active_book_id)} binds active loans only.
+     * Derived state, never read by the domain — {@link LoanMapper} is its only writer.
+     */
+    @Column(name = "active_book_id")
+    private UUID activeBookId;
+
     protected LoanEntity() {
         // required by JPA
     }
@@ -47,6 +55,7 @@ class LoanEntity {
         this.borrowedAt = borrowedAt;
         this.dueOn = dueOn;
         this.returnedAt = returnedAt;
+        this.activeBookId = returnedAt == null ? bookId : null;
     }
 
     UUID id() {
@@ -71,5 +80,9 @@ class LoanEntity {
 
     Instant returnedAt() {
         return returnedAt;
+    }
+
+    UUID activeBookId() {
+        return activeBookId;
     }
 }

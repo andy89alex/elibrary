@@ -18,7 +18,7 @@ mvn spring-boot:run
 Then open <http://localhost:9123/swagger-ui.html> (it 302-redirects to the Swagger UI index).
 
 ```bash
-mvn clean verify     # full build: 151 unit tests + 11 integration tests
+mvn clean verify     # full build: 151 unit tests + 13 integration tests
 mvn test             # unit tests only (~11s)
 ```
 
@@ -280,7 +280,7 @@ false around the twentieth commit.
 |---|---|---|
 | 1 | Borrow only when a copy is available | `catalog` — `BookRecord.checkoutCopy` under a write lock, plus the `chk_books_available_copies` database constraint |
 | 2 | A member may not exceed `maxConcurrentLoans` | `ActiveLoans.borrow` |
-| 3 | A member may not hold two active loans of the same book | `ActiveLoans.borrow` |
+| 3 | A member may not hold two active loans of the same book | `ActiveLoans.borrow`, plus the `uq_loans_member_active_book` unique constraint |
 | 4 | A loan has a due date; returning closes it and restores the copy | `Loan.open` / `Loan.returnNow` + `BookInventory.restore` |
 
 Invariants 2 and 3 live in `ActiveLoans`, a domain type representing the member's lending
@@ -355,6 +355,34 @@ pessimistic lock and that test still fails, but by way of
 way of multiple successful loans. That distinction is the point: the test verifies the
 queuing behaviour, and the safety net underneath it is a separate, independently sufficient
 mechanism.
+
+**Invariant 3 needed a database constraint, and H2's missing feature was not a good enough
+reason to skip it.** `BorrowBook.handle` reads the member's position with no lock, so two
+concurrent borrows of the same book both see "not yet borrowed", both pass
+`ActiveLoans.borrow`, and both insert. Nothing in the aggregate can close that window — the
+check and the write are separate statements, and only the database sees both. This was
+reproducible, not theoretical: two threads, two successful loans, two copies consumed.
+
+The textbook answer is a partial unique index, which H2 does not support. The answer here
+is `active_book_id`: a column carrying `book_id` while the loan is open and NULL once it is
+returned, with `unique (member_id, active_book_id)` over it. SQL never treats one NULL as
+equal to another, so returned rows fall out of the constraint and a member may borrow the
+same book again later — the behaviour of a partial index, using nothing a database might
+not have.
+
+Two costs, both real. The column duplicates state derivable from `book_id` and
+`returned_at`; `LoanEntity`'s constructor is its only writer, which is the narrowest seam
+short of a generated column. And the violation surfaces as
+`DataIntegrityViolationException`, which `JpaLoanRepository.save` translates back into
+`AlreadyBorrowed` — matching on the *constraint name*, not the exception type, because the
+same exception also carries foreign-key failures and mapping those to "already borrowed"
+would disguise a defect as a business refusal. The save uses `saveAndFlush` so the insert
+reaches the database inside that method; a deferred flush would raise the violation at
+commit, past any catch block, and the caller would see a raw infrastructure error.
+
+The domain check stays. It is what produces a good error in the overwhelming majority of
+cases without touching the constraint, and it keeps the rule unit-testable with no database.
+The constraint is the backstop for the window the domain cannot see.
 
 **Overdue is derived, never stored.** `Loan.isOverdue(clock)` is a pure function of `dueOn`
 and the injected clock. There is no `status` column and no scheduled job flipping rows, so
@@ -473,11 +501,11 @@ a dedicated projection would earn its keep.
 
 ```bash
 mvn test        # 151 unit tests: domain, application, web, persistence, architecture
-mvn verify      # the above plus 11 integration tests
+mvn verify      # the above plus 13 integration tests
 ```
 
-The 11 integration tests are `LendingFlowIT` (5), `LibrarianLedgerIT` (5) and
-`LastCopyConcurrencyIT` (1).
+The 13 integration tests are `LendingFlowIT` (5), `LibrarianLedgerIT` (5),
+`DoubleSubmitConcurrencyIT` (2) and `LastCopyConcurrencyIT` (1).
 
 | Layer | Tooling | Subject |
 |---|---|---|
@@ -506,7 +534,7 @@ page of loans issues one catalogue lookup rather than one per row.
 | Member management | A separate domain; no invariant here needs it |
 | Full-text search | `LIKE` is honest at this scale. Production needs a real index — the query is isolated in one repository method |
 | Cursor pagination | Offset is correct for a 15-row seeded catalogue. Cursor paging is the right answer once the table is large and writes are frequent |
-| Idempotency keys | Not implemented. Invariant 3 ("no two active loans of the same book per member") is enforced in the domain only — `BorrowBook.handle` reads the member's active position with no lock — so it does *not* make a concurrent double-submit safe: two simultaneous `POST /loans` for the same member and book can both pass the check and both save, leaving two active loans. The two requests do serialise on the book row inside `checkout`, which prevents overselling the book, but that is invariant 1, not invariant 3. Closing double-submit for real needs either an idempotency key or the partial unique index named below (`create unique index ... on loans (member_id, book_id) where returned_at is null`), which Postgres supports and H2 does not |
+| Idempotency keys | Not implemented, and worth being precise about what that does and does not cost. An idempotency key makes a *retry* safe: the same client resending the same key after a timeout gets the stored response instead of a second loan. It does nothing for two genuinely concurrent requests carrying different keys, or none — which is the race that actually threatened invariant 3, and which the unique constraint now closes. The remaining gap is therefore a client-experience one: a caller whose request times out cannot tell whether it succeeded, and retrying costs them a 409 rather than an answer. Closing that needs a keyed request/response store, a request fingerprint so a reused key with a different body is rejected, and an expiry policy |
 | Fines and overdue penalties | Policy-heavy and adds no architectural signal |
 | Librarian *writes* (acquisitions, withdrawals) | `GET /admin/loans` gives the librarian a read over the ledger, but nothing mutates the catalogue. Acquisitions and withdrawals are catalogue writes, which is the one thing the CQRS-lite catalogue is not built for — see the risk noted above. The read needed no new structure; a write would |
 
@@ -514,16 +542,18 @@ page of loans issues one catalogue lookup rather than one per row.
 
 Known gaps in what is here, first — these are small, but they are real:
 
-- **Invariant 3 is not a database constraint.** "No two active loans of the same book per
-  member" is enforced in the domain only. On PostgreSQL it would be
-  `create unique index ... on loans (member_id, book_id) where returned_at is null`; H2 does
-  not support partial unique indexes. It is the one invariant with only a single line of
-  defence, and worth knowing as a genuine difference between this environment and production.
+- **`active_book_id` duplicates derivable state.** Its value is always implied by `book_id`
+  and `returned_at`, so in principle the two can drift. `LoanEntity`'s constructor is the
+  only writer and sets it from `returnedAt` on every instance, which is the narrowest seam
+  available without a database-specific feature. On PostgreSQL the column disappears
+  entirely in favour of a real partial unique index.
 
 Then:
 
-- **Postgres and Testcontainers.** The schema is already Flyway-managed and dialect-neutral;
-  add the partial unique index above and that gap closes with it.
+- **Postgres and Testcontainers.** The schema is already Flyway-managed and dialect-neutral.
+  On Postgres, `V3` collapses to
+  `create unique index ... on loans (member_id, book_id) where returned_at is null` and the
+  extra column goes away.
 - **Domain events and an outbox.** `BookReturned` is the natural first event, and it is what a
   reservation queue would consume. A transactional outbox keeps publication atomic with the
   state change.
